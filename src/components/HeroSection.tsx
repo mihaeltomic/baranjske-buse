@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import {
   motion,
   useScroll,
@@ -8,22 +8,40 @@ import {
   useMotionValue,
   useSpring,
   useMotionValueEvent,
+  type MotionValue,
 } from "framer-motion";
 import Image from "next/image";
 
 // ─── Figma canvas: 1728 × 1117 ───────────────────────────────────────────────
+const CANVAS_W = 1728;
+const CANVAS_H = 1117;
+
 const EYES = {
-  left:  { vcx: 707.5  / 1728, vcy: 392.3 / 1117, pathW: 71.5877, pathH: 73.8855, imgW: 72, imgH: 74 },
-  right: { vcx: 1010.3 / 1728, vcy: 391.4 / 1117, pathW: 70.0345, pathH: 71.3383, imgW: 70, imgH: 71 },
+  left:  { cx: 707.5,  cy: 392.3, pathW: 71.5877, pathH: 73.8855, imgW: 72, imgH: 74 },
+  right: { cx: 1010.3, cy: 391.4, pathW: 70.0345, pathH: 71.3383, imgW: 70, imgH: 71 },
 } as const;
 
 const SVG_MASK = {
   canvasX: 634.141, canvasY: 355.36,
   svgW:    411.144, svgH:    522.737,
-  canvasW: 1728,    canvasH: 1117,
 } as const;
 
 type Side = "left" | "right";
+
+// ─── Map Figma canvas coordinates to viewport using "cover" scaling ──────────
+// Maintains aspect ratio so SVG masks don't distort on any viewport shape
+function canvasToViewport(canvasX: number, canvasY: number) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const scale = Math.max(w / CANVAS_W, h / CANVAS_H);
+  const offsetX = (w - CANVAS_W * scale) / 2;
+  const offsetY = (h - CANVAS_H * scale) / 2;
+  return {
+    x: canvasX * scale + offsetX,
+    y: canvasY * scale + offsetY,
+    scale,
+  };
+}
 
 // ─── Shared helper: set CSS mask with explicit pixel values ─────────────────
 function setMask(el: HTMLDivElement, img: string, pos: string, size: string) {
@@ -38,14 +56,11 @@ function setMask(el: HTMLDivElement, img: string, pos: string, size: string) {
 }
 
 // Layer B: single eye shape, scales on scroll
-function applyEyeMask(el: HTMLDivElement, side: Side, scale: number) {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
+function applyEyeMask(el: HTMLDivElement, side: Side, scrollScale: number) {
   const eye = EYES[side];
-  const cx = eye.vcx * w;
-  const cy = eye.vcy * h;
-  const sw = eye.pathW * scale;
-  const sh = eye.pathH * scale;
+  const { x: cx, y: cy, scale } = canvasToViewport(eye.cx, eye.cy);
+  const sw = eye.pathW * scale * scrollScale;
+  const sh = eye.pathH * scale * scrollScale;
   setMask(
     el,
     `url('/eye-${side}.svg')`,
@@ -57,18 +72,13 @@ function applyEyeMask(el: HTMLDivElement, side: Side, scale: number) {
 // Layer A: full face features (both eyes + mouth) via CSS mask-image
 // Note: Layer A container has inset: -20px, so add 20px offset to position
 function applyFeaturesMask(el: HTMLDivElement) {
-  const w = window.innerWidth;
-  const h = window.innerHeight;
-  const scaleX = w / SVG_MASK.canvasW;
-  const scaleY = h / SVG_MASK.canvasH;
-  const x  = SVG_MASK.canvasX * scaleX + 20;
-  const y  = SVG_MASK.canvasY * scaleY + 20;
-  const sw = SVG_MASK.svgW * scaleX;
-  const sh = SVG_MASK.svgH * scaleY;
+  const { x, y, scale } = canvasToViewport(SVG_MASK.canvasX, SVG_MASK.canvasY);
+  const sw = SVG_MASK.svgW * scale;
+  const sh = SVG_MASK.svgH * scale;
   setMask(
     el,
     "url('/mask-cutouts.svg')",
-    `${x.toFixed(1)}px ${y.toFixed(1)}px`,
+    `${(x + 20).toFixed(1)}px ${(y + 20).toFixed(1)}px`,
     `${sw.toFixed(1)}px ${sh.toFixed(1)}px`,
   );
 }
@@ -81,6 +91,7 @@ export default function HeroSection() {
   const maxScaleRef   = useRef(120);
   const [activeSide, setActiveSide] = useState<Side>("left");
   const [masksReady, setMasksReady] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
   // ── Scroll-linked animation ───────────────────────────────────────────────
   const { scrollYProgress } = useScroll({
@@ -94,27 +105,30 @@ export default function HeroSection() {
 
   const layerAOpacity = useTransform(scrollYProgress, [0, 0.3], [1, 0]);
 
-  // ── Mouse parallax ──────────────────────────────────────────────────────
+  // ── Mouse/touch parallax ──────────────────────────────────────────────────
   const mouseX = useMotionValue(0);
   const mouseY = useMotionValue(0);
   const springCfg = { stiffness: 120, damping: 25, mass: 0.5 };
   const smoothX = useSpring(mouseX, springCfg);
   const smoothY = useSpring(mouseY, springCfg);
 
+  // Parallax intensity scales down on mobile
+  const pScale = isMobile ? 0.5 : 1;
+
   // Layer A (mask features): subtle shift, fades out on scroll
   const maskParallaxX = useTransform([smoothX, scrollYProgress] as const, ([mx, sp]: number[]) =>
-    mx * 14 * Math.max(0, 1 - sp * 4)
+    mx * 14 * pScale * Math.max(0, 1 - sp * 4)
   );
   const maskParallaxY = useTransform([smoothY, scrollYProgress] as const, ([my, sp]: number[]) =>
-    my * 10 * Math.max(0, 1 - sp * 4)
+    my * 10 * pScale * Math.max(0, 1 - sp * 4)
   );
 
   // Eye decos: more movement (closer to viewer)
   const decoParallaxX = useTransform([smoothX, scrollYProgress] as const, ([mx, sp]: number[]) =>
-    mx * 22 * Math.max(0, 1 - sp * 4)
+    mx * 22 * pScale * Math.max(0, 1 - sp * 4)
   );
   const decoParallaxY = useTransform([smoothY, scrollYProgress] as const, ([my, sp]: number[]) =>
-    my * 16 * Math.max(0, 1 - sp * 4)
+    my * 16 * pScale * Math.max(0, 1 - sp * 4)
   );
 
   // Background image: slow scroll parallax, stops once fully scrolled in
@@ -126,28 +140,30 @@ export default function HeroSection() {
     }
   });
 
-  function computeMaxScale() {
+  const computeMaxScale = useCallback(() => {
     const diag = Math.sqrt(window.innerWidth ** 2 + window.innerHeight ** 2);
-    const minHalf = Math.min(EYES.left.pathW, EYES.left.pathH) / 2;
+    const { scale } = canvasToViewport(0, 0);
+    const minHalf = Math.min(EYES.left.pathW, EYES.left.pathH) * scale / 2;
     maxScaleRef.current = Math.ceil((diag * 1.5) / minHalf);
-  }
+  }, []);
 
   useEffect(() => {
+    const mobile = window.innerWidth < 768 || "ontouchstart" in window;
+    setIsMobile(mobile);
     computeMaxScale();
 
     if (layerARef.current) applyFeaturesMask(layerARef.current);
     if (layerBRef.current) applyEyeMask(layerBRef.current, "left", 1);
     setMasksReady(true);
 
-    const onMouseMove = (e: MouseEvent) => {
-      // Parallax: normalized -1 to 1 from viewport centre
-      const nx = (e.clientX / window.innerWidth)  * 2 - 1;
-      const ny = (e.clientY / window.innerHeight) * 2 - 1;
+    // ── Pointer handler (works for both mouse and touch) ──────────────────
+    const handlePointer = (clientX: number, clientY: number) => {
+      const nx = (clientX / window.innerWidth)  * 2 - 1;
+      const ny = (clientY / window.innerHeight) * 2 - 1;
       mouseX.set(nx);
       mouseY.set(ny);
 
-      // Eye side switching
-      const side: Side = e.clientX < window.innerWidth / 2 ? "left" : "right";
+      const side: Side = clientX < window.innerWidth / 2 ? "left" : "right";
       if (side === activeSideRef.current) return;
       activeSideRef.current = side;
       setActiveSide(side);
@@ -155,7 +171,14 @@ export default function HeroSection() {
       if (layerBRef.current) applyEyeMask(layerBRef.current, side, s);
     };
 
+    const onMouseMove = (e: MouseEvent) => handlePointer(e.clientX, e.clientY);
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (t) handlePointer(t.clientX, t.clientY);
+    };
+
     const onResize = () => {
+      setIsMobile(window.innerWidth < 768 || "ontouchstart" in window);
       computeMaxScale();
       if (layerARef.current) applyFeaturesMask(layerARef.current);
       const s = clipScale.get();
@@ -163,12 +186,14 @@ export default function HeroSection() {
     };
 
     window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("touchmove", onTouchMove, { passive: true });
     window.addEventListener("resize", onResize);
     return () => {
       window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("touchmove", onTouchMove);
       window.removeEventListener("resize", onResize);
     };
-  }, [clipScale]);
+  }, [clipScale, computeMaxScale]);
 
   return (
     <section ref={containerRef} style={{ height: "200vh", position: "relative" }}>
@@ -215,46 +240,12 @@ export default function HeroSection() {
         </motion.div>
 
         {/* ── Eye glow highlights ─────────────────────────────────────────── */}
-        <motion.div style={{ position: "absolute", inset: "-20px", opacity: layerAOpacity, mixBlendMode: "screen", x: decoParallaxX, y: decoParallaxY }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <motion.img
-            src="/eye-left.svg" alt=""
-            width={EYES.left.imgW} height={EYES.left.imgH}
-            animate={{
-              opacity: activeSide === "left" ? 0.22 : 0.04,
-              filter: activeSide === "left"
-                ? "drop-shadow(0 0 18px rgba(255,255,255,0.7)) blur(1px)"
-                : "drop-shadow(0 0 0px rgba(255,255,255,0)) blur(0px)",
-            }}
-            transition={{ duration: 0.35, ease: "easeOut" }}
-            style={{
-              position: "absolute",
-              left: `calc(${EYES.left.vcx * 100}vw + 20px)`,
-              top:  `calc(${EYES.left.vcy * 100}vh + 20px)`,
-              transform: "translate(-50%, -50%)",
-              pointerEvents: "none",
-            }}
-          />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <motion.img
-            src="/eye-right.svg" alt=""
-            width={EYES.right.imgW} height={EYES.right.imgH}
-            animate={{
-              opacity: activeSide === "right" ? 0.22 : 0.04,
-              filter: activeSide === "right"
-                ? "drop-shadow(0 0 18px rgba(255,255,255,0.7)) blur(1px)"
-                : "drop-shadow(0 0 0px rgba(255,255,255,0)) blur(0px)",
-            }}
-            transition={{ duration: 0.35, ease: "easeOut" }}
-            style={{
-              position: "absolute",
-              left: `calc(${EYES.right.vcx * 100}vw + 20px)`,
-              top:  `calc(${EYES.right.vcy * 100}vh + 20px)`,
-              transform: "translate(-50%, -50%)",
-              pointerEvents: "none",
-            }}
-          />
-        </motion.div>
+        <EyeGlowLayer
+          activeSide={activeSide}
+          layerAOpacity={layerAOpacity}
+          decoParallaxX={decoParallaxX}
+          decoParallaxY={decoParallaxY}
+        />
 
         {/* ── Bottom gradient vignette ─────────────────────────────────────── */}
         <div
@@ -286,5 +277,86 @@ export default function HeroSection() {
 
       </div>
     </section>
+  );
+}
+
+// ─── Eye glow decorations — uses canvasToViewport for consistent positioning ─
+function EyeGlowLayer({
+  activeSide,
+  layerAOpacity,
+  decoParallaxX,
+  decoParallaxY,
+}: {
+  activeSide: Side;
+  layerAOpacity: MotionValue<number>;
+  decoParallaxX: MotionValue<number>;
+  decoParallaxY: MotionValue<number>;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [positions, setPositions] = useState({ leftX: 0, leftY: 0, rightX: 0, rightY: 0, leftW: 72, leftH: 74, rightW: 70, rightH: 71 });
+
+  useEffect(() => {
+    function update() {
+      const left = canvasToViewport(EYES.left.cx, EYES.left.cy);
+      const right = canvasToViewport(EYES.right.cx, EYES.right.cy);
+      setPositions({
+        leftX: left.x + 20,
+        leftY: left.y + 20,
+        rightX: right.x + 20,
+        rightY: right.y + 20,
+        leftW: EYES.left.imgW * left.scale,
+        leftH: EYES.left.imgH * left.scale,
+        rightW: EYES.right.imgW * right.scale,
+        rightH: EYES.right.imgH * right.scale,
+      });
+    }
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  return (
+    <motion.div ref={ref} style={{ position: "absolute", inset: "-20px", opacity: layerAOpacity, mixBlendMode: "screen", x: decoParallaxX, y: decoParallaxY }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <motion.img
+        src="/eye-left.svg" alt=""
+        animate={{
+          opacity: activeSide === "left" ? 0.22 : 0.04,
+          filter: activeSide === "left"
+            ? "drop-shadow(0 0 18px rgba(255,255,255,0.7)) blur(1px)"
+            : "drop-shadow(0 0 0px rgba(255,255,255,0)) blur(0px)",
+        }}
+        transition={{ duration: 0.35, ease: "easeOut" }}
+        style={{
+          position: "absolute",
+          left: positions.leftX,
+          top: positions.leftY,
+          width: positions.leftW,
+          height: positions.leftH,
+          transform: "translate(-50%, -50%)",
+          pointerEvents: "none",
+        }}
+      />
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <motion.img
+        src="/eye-right.svg" alt=""
+        animate={{
+          opacity: activeSide === "right" ? 0.22 : 0.04,
+          filter: activeSide === "right"
+            ? "drop-shadow(0 0 18px rgba(255,255,255,0.7)) blur(1px)"
+            : "drop-shadow(0 0 0px rgba(255,255,255,0)) blur(0px)",
+        }}
+        transition={{ duration: 0.35, ease: "easeOut" }}
+        style={{
+          position: "absolute",
+          left: positions.rightX,
+          top: positions.rightY,
+          width: positions.rightW,
+          height: positions.rightH,
+          transform: "translate(-50%, -50%)",
+          pointerEvents: "none",
+        }}
+      />
+    </motion.div>
   );
 }
