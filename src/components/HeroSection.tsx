@@ -209,10 +209,25 @@ export default function HeroSection() {
         <div ref={layerBRef} style={{ position: "absolute", inset: 0, visibility: masksReady ? "visible" : "hidden" }}>
           <motion.div style={{ position: "absolute", inset: "-60px 0", y: bgParallaxY }}>
             <Image
-              src="/hero.png"
+              src="/hero.webp"
               alt="Baranjske buše mask"
               fill
-              style={{ objectFit: "cover", objectPosition: "center 40%" }}
+              style={{
+                objectFit: "cover", objectPosition: "center 40%",
+                opacity: activeSide === "right" ? 1 : 0,
+                transition: "opacity 0.6s ease",
+              }}
+              priority
+            />
+            <Image
+              src="/hero-left.webp"
+              alt="Baranjske buše mask"
+              fill
+              style={{
+                objectFit: "cover", objectPosition: "center 40%",
+                opacity: activeSide === "left" ? 1 : 0,
+                transition: "opacity 0.6s ease",
+              }}
               priority
             />
           </motion.div>
@@ -231,10 +246,25 @@ export default function HeroSection() {
           }}
         >
           <Image
-            src="/hero.png"
+            src="/hero.webp"
             alt=""
             fill
-            style={{ objectFit: "cover", objectPosition: "center 40%" }}
+            style={{
+              objectFit: "cover", objectPosition: "center 40%",
+              opacity: activeSide === "right" ? 1 : 0,
+              transition: "opacity 0.6s ease",
+            }}
+            aria-hidden
+          />
+          <Image
+            src="/hero-left-mask.webp"
+            alt=""
+            fill
+            style={{
+              objectFit: "cover", objectPosition: "center 40%",
+              opacity: activeSide === "left" ? 1 : 0,
+              transition: "opacity 0.6s ease",
+            }}
             aria-hidden
           />
         </motion.div>
