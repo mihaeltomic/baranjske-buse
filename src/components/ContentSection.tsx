@@ -122,7 +122,7 @@ export default function ContentSection() {
             role="heading"
             aria-level={1}
             style={{
-              width: "min(60vw, 380px)",
+              width: "min(70vw, 420px)",
               height: "auto",
             }}
           />
