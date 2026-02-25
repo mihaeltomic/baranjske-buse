@@ -42,40 +42,6 @@ export default function FooterSection() {
           style={{ width: 36, height: "auto", opacity: 0.4 }}
         />
 
-        {/* Nav links */}
-        <nav
-          style={{
-            display: "flex",
-            gap: "2.5rem",
-            flexWrap: "wrap",
-            justifyContent: "center",
-          }}
-        >
-          {["Tradition", "Gallery", "Contact"].map((label) => (
-            <a
-              key={label}
-              href={`#${label.toLowerCase()}`}
-              style={{
-                fontFamily: "var(--font-namu-title, sans-serif)",
-                fontSize: "0.65rem",
-                letterSpacing: "0.3em",
-                textTransform: "uppercase",
-                color: "rgba(255,255,255,0.35)",
-                textDecoration: "none",
-                transition: "color 0.3s",
-              }}
-              onMouseEnter={(e) => {
-                (e.currentTarget as HTMLAnchorElement).style.color = GOLD_DIM;
-              }}
-              onMouseLeave={(e) => {
-                (e.currentTarget as HTMLAnchorElement).style.color = "rgba(255,255,255,0.35)";
-              }}
-            >
-              {label}
-            </a>
-          ))}
-        </nav>
-
         {/* Divider */}
         <div style={{ height: 1, width: 56, background: "rgba(255,255,255,0.06)" }} />
 
